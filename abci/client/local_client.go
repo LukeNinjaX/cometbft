@@ -1,6 +1,9 @@
 package abcicli
 
 import (
+	"fmt"
+	"time"
+
 	types "github.com/cometbft/cometbft/abci/types"
 	"github.com/cometbft/cometbft/libs/service"
 	cmtsync "github.com/cometbft/cometbft/libs/sync"
@@ -261,10 +264,14 @@ func (app *localClient) QuerySync(req types.RequestQuery) (*types.ResponseQuery,
 }
 
 func (app *localClient) CommitSync() (*types.ResponseCommit, error) {
+	t := time.Now()
 	app.mtx.Lock()
 	defer app.mtx.Unlock()
 
+	fmt.Println(">>>>>>>>>>>>>>>>>>>>>CommitSync Lock ", time.Since(t).Milliseconds())
+	t = time.Now()
 	res := app.Application.Commit()
+	fmt.Println(">>>>>>>>>>>>>>>>>>>>>CommitSync Commit ", time.Since(t).Milliseconds())
 	return &res, nil
 }
 

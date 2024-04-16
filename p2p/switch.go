@@ -363,6 +363,10 @@ func (sw *Switch) StopPeerGracefully(peer Peer) {
 }
 
 func (sw *Switch) stopAndRemovePeer(peer Peer, reason interface{}) {
+	addr, _ := peer.NodeInfo().NetAddress()
+	id := peer.NodeInfo().ID()
+	fmt.Println(".....stopAndRemovePeer", addr, id)
+
 	sw.transport.Cleanup(peer)
 	if err := peer.Stop(); err != nil {
 		sw.Logger.Error("error while stopping peer", "error", err) // TODO: should return error to be handled accordingly

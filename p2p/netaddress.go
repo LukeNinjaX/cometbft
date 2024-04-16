@@ -244,8 +244,10 @@ func (na *NetAddress) Dial() (net.Conn, error) {
 func (na *NetAddress) DialTimeout(timeout time.Duration) (net.Conn, error) {
 	conn, err := net.DialTimeout("tcp", na.DialString(), timeout)
 	if err != nil {
+		fmt.Printf("^^^^^^Dail peer %s failed err: %+v\n", na.IP.String(), err)
 		return nil, err
 	}
+	fmt.Printf("^^^^^^Dail peer %s success\n", na.IP.String())
 	return conn, nil
 }
 

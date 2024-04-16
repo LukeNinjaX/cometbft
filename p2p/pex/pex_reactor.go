@@ -498,12 +498,15 @@ func (r *Reactor) ensurePeers() {
 		go func(addr *p2p.NetAddress) {
 			err := r.dialPeer(addr)
 			if err != nil {
+				fmt.Printf("......dail peer addr: %s failed, err: %v\n", addr.IP, err)
 				switch err.(type) {
 				case errMaxAttemptsToDial, errTooEarlyToDial:
 					r.Logger.Debug(err.Error(), "addr", addr)
 				default:
 					r.Logger.Debug(err.Error(), "addr", addr)
 				}
+			} else {
+				fmt.Printf("......dail peer addr: %s success\n", addr.IP)
 			}
 		}(addr)
 	}

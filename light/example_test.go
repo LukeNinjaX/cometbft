@@ -45,7 +45,7 @@ func ExampleClient_Update() {
 		stdlog.Fatal(err)
 	}
 
-	db, err := dbm.NewGoLevelDB("light-client-db", dbDir)
+	db, err := dbm.NewGoLevelDB("light-client-db", dbDir, nil)
 	if err != nil {
 		stdlog.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func ExampleClient_VerifyLightBlockAtHeight() {
 		stdlog.Fatal(err)
 	}
 
-	db, err := dbm.NewGoLevelDB("light-client-db", dbDir)
+	db, err := dbm.NewGoLevelDB("light-client-db", dbDir, nil)
 	if err != nil {
 		stdlog.Fatal(err)
 	}

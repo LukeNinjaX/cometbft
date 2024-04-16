@@ -179,6 +179,9 @@ func (blockExec *BlockExecutor) ValidateBlock(state State, block *types.Block) e
 	return blockExec.evpool.CheckEvidence(block.Evidence.Evidence)
 }
 
+var last20 []int64 = make([]int64, 20)
+var t1 time.Time = time.Now()
+
 // ApplyBlock validates the block against the state, executes it against the app,
 // fires the relevant events, commits the app, and saves the new state and responses.
 // It returns the new state and the block height to retain (pruning older blocks).
@@ -188,20 +191,49 @@ func (blockExec *BlockExecutor) ValidateBlock(state State, block *types.Block) e
 func (blockExec *BlockExecutor) ApplyBlock(
 	state State, blockID types.BlockID, block *types.Block,
 ) (State, int64, error) {
+	applyT := time.Now()
+	defer func() {
+		applyDuration := time.Since(applyT).Milliseconds()
+		tmp := last20[:19]
+		duration := time.Since(t1).Milliseconds()
+		last20 = append([]int64{duration}, tmp...)
+		total := int64(0)
+		for _, d := range last20 {
+			total += d
+		}
 
+		address := make([]types.Address, 0)
+		for _, commit := range block.LastCommit.Signatures {
+			if len(commit.Signature) > 0 && len(commit.ValidatorAddress) > 0 {
+				address = append(address, commit.ValidatorAddress)
+			}
+		}
+
+		// fmt.Printf(">>>>>ApplyBlock validators%+v\n", address)
+		fmt.Printf(">>>>>ApplyBlock %d, duration:%4d, average:%4d, apply:%4d, sig:%2d, txs:%2d, prop: %s\n", block.Height, duration, total/20, applyDuration, len(address), block.Txs.Len(), block.ProposerAddress)
+		t1 = time.Now()
+	}()
+
+	t := time.Now()
 	if err := validateBlock(state, block); err != nil {
 		return state, 0, ErrInvalidBlock(err)
 	}
+	fmt.Println(">>>>>ApplyBlock validateBlock ", time.Since(t).Milliseconds())
+	t = time.Now()
 
 	startTime := time.Now().UnixNano()
 	abciResponses, err := execBlockOnProxyApp(
 		blockExec.logger, blockExec.proxyApp, block, blockExec.store, state.InitialHeight,
 	)
+	fmt.Println(">>>>>ApplyBlock execBlockOnProxyApp ", time.Since(t).Milliseconds())
+	t = time.Now()
 	endTime := time.Now().UnixNano()
 	blockExec.metrics.BlockProcessingTime.Observe(float64(endTime-startTime) / 1000000)
 	if err != nil {
 		return state, 0, ErrProxyAppConn(err)
 	}
+	fmt.Println(">>>>>ApplyBlock Observe ", time.Since(t).Milliseconds())
+	t = time.Now()
 
 	fail.Fail() // XXX
 
@@ -209,6 +241,8 @@ func (blockExec *BlockExecutor) ApplyBlock(
 	if err := blockExec.store.SaveABCIResponses(block.Height, abciResponses); err != nil {
 		return state, 0, err
 	}
+	fmt.Println(">>>>>ApplyBlock SaveABCIResponses ", time.Since(t).Milliseconds())
+	t = time.Now()
 
 	fail.Fail() // XXX
 
@@ -218,6 +252,8 @@ func (blockExec *BlockExecutor) ApplyBlock(
 	if err != nil {
 		return state, 0, fmt.Errorf("error in validator updates: %v", err)
 	}
+	fmt.Println(">>>>>ApplyBlock validateValidatorUpdates ", time.Since(t).Milliseconds())
+	t = time.Now()
 
 	validatorUpdates, err := types.PB2TM.ValidatorUpdates(abciValUpdates)
 	if err != nil {
@@ -231,20 +267,30 @@ func (blockExec *BlockExecutor) ApplyBlock(
 		blockExec.metrics.ConsensusParamUpdates.Add(1)
 	}
 
+	fmt.Println(">>>>>ApplyBlock ValidatorUpdates ", time.Since(t).Milliseconds())
+	t = time.Now()
+
 	// Update the state with the block and responses.
 	state, err = updateState(state, blockID, &block.Header, abciResponses, validatorUpdates)
 	if err != nil {
 		return state, 0, fmt.Errorf("commit failed for application: %v", err)
 	}
 
+	fmt.Println(">>>>>ApplyBlock updateState ", time.Since(t).Milliseconds())
+	t = time.Now()
+
 	// Lock mempool, commit app state, update mempoool.
 	appHash, retainHeight, err := blockExec.Commit(state, block, abciResponses.DeliverTxs)
 	if err != nil {
 		return state, 0, fmt.Errorf("commit failed for application: %v", err)
 	}
+	fmt.Println(">>>>>ApplyBlock Commit ", time.Since(t).Milliseconds())
+	t = time.Now()
 
 	// Update evpool with the latest state.
 	blockExec.evpool.Update(state, block.Evidence.Evidence)
+	fmt.Println(">>>>>ApplyBlock Update ", time.Since(t).Milliseconds())
+	t = time.Now()
 
 	fail.Fail() // XXX
 
@@ -253,12 +299,15 @@ func (blockExec *BlockExecutor) ApplyBlock(
 	if err := blockExec.store.Save(state); err != nil {
 		return state, 0, err
 	}
+	fmt.Println(">>>>>ApplyBlock Save ", time.Since(t).Milliseconds())
+	t = time.Now()
 
 	fail.Fail() // XXX
 
 	// Events are fired after everything else.
 	// NOTE: if we crash between Commit and Save, events wont be fired during replay
 	fireEvents(blockExec.logger, blockExec.eventBus, block, abciResponses, validatorUpdates)
+	fmt.Println(">>>>>ApplyBlock fireEvents ", time.Since(t).Milliseconds())
 
 	return state, retainHeight, nil
 }
@@ -276,6 +325,7 @@ func (blockExec *BlockExecutor) Commit(
 ) ([]byte, int64, error) {
 	blockExec.mempool.Lock()
 	defer blockExec.mempool.Unlock()
+	t := time.Now()
 
 	// while mempool is Locked, flush to ensure all async requests have completed
 	// in the ABCI app before Commit.
@@ -284,6 +334,8 @@ func (blockExec *BlockExecutor) Commit(
 		blockExec.logger.Error("client error during mempool.FlushAppConn", "err", err)
 		return nil, 0, err
 	}
+	fmt.Println(">>>>>>>>>>>>>>>Commit FlushAppConn ", time.Since(t).Milliseconds())
+	t = time.Now()
 
 	// Commit block, get hash back
 	res, err := blockExec.proxyApp.CommitSync()
@@ -291,6 +343,8 @@ func (blockExec *BlockExecutor) Commit(
 		blockExec.logger.Error("client error during proxyAppConn.CommitSync", "err", err)
 		return nil, 0, err
 	}
+	fmt.Println(">>>>>>>>>>>>>>>Commit CommitSync ", time.Since(t).Milliseconds())
+	t = time.Now()
 
 	// ResponseCommit has no error code - just data
 	blockExec.logger.Info(
@@ -308,6 +362,8 @@ func (blockExec *BlockExecutor) Commit(
 		TxPreCheck(state),
 		TxPostCheck(state),
 	)
+	fmt.Println(">>>>>>>>>>>>>>>Commit Update mempool ", time.Since(t).Milliseconds())
+	t = time.Now()
 
 	return res.Data, res.RetainHeight, err
 }

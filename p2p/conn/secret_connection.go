@@ -90,6 +90,7 @@ type SecretConnection struct {
 // Caller should call conn.Close()
 // See docs/sts-final.pdf for more information.
 func MakeSecretConnection(conn io.ReadWriteCloser, locPrivKey crypto.PrivKey) (*SecretConnection, error) {
+	fmt.Println("^^^^^^^^^^^^^^^MakeSecretConnection...")
 	var (
 		locPubKey = locPrivKey.PubKey()
 	)
@@ -100,10 +101,13 @@ func MakeSecretConnection(conn io.ReadWriteCloser, locPrivKey crypto.PrivKey) (*
 	// Write local ephemeral pubkey and receive one too.
 	// NOTE: every 32-byte string is accepted as a Curve25519 public key (see
 	// DJB's Curve25519 paper: http://cr.yp.to/ecdh/curve25519-20060209.pdf)
+	fmt.Println("^^^^^^^^^^^^^^^shareEphPubKey...")
 	remEphPub, err := shareEphPubKey(conn, locEphPub)
 	if err != nil {
+		fmt.Printf("^^^^^^^^^^^^^^^shareEphPubKey failed, err %+v\n", err)
 		return nil, err
 	}
+	fmt.Println("^^^^^^^^^^^^^^^shareEphPubKey success")
 
 	// Sort by lexical order.
 	loEphPub, hiEphPub := sort32(locEphPub, remEphPub)
@@ -120,6 +124,7 @@ func MakeSecretConnection(conn io.ReadWriteCloser, locPrivKey crypto.PrivKey) (*
 	// Compute common diffie hellman secret using X25519.
 	dhSecret, err := computeDHSecret(remEphPub, locEphPriv)
 	if err != nil {
+		fmt.Println("^^^^^^^^^^^^^^^computeDHSecret error", err)
 		return nil, err
 	}
 
@@ -157,12 +162,14 @@ func MakeSecretConnection(conn io.ReadWriteCloser, locPrivKey crypto.PrivKey) (*
 	// Sign the challenge bytes for authentication.
 	locSignature, err := signChallenge(&challenge, locPrivKey)
 	if err != nil {
+		fmt.Println("^^^^^^^^^^^^^^^signChallenge error", err)
 		return nil, err
 	}
 
 	// Share (in secret) each other's pubkey & challenge signature
 	authSigMsg, err := shareAuthSignature(sc, locPubKey, locSignature)
 	if err != nil {
+		fmt.Println("^^^^^^^^^^^^^^^shareAuthSignature error", err)
 		return nil, err
 	}
 
@@ -306,6 +313,7 @@ func shareEphPubKey(conn io.ReadWriter, locEphPub *[32]byte) (remEphPub *[32]byt
 			lc := *locEphPub
 			_, err = protoio.NewDelimitedWriter(conn).WriteMsg(&gogotypes.BytesValue{Value: lc[:]})
 			if err != nil {
+				fmt.Println("^^^^^^^^^^^^^^^conn WriteMsg failed", err)
 				return nil, true, err // abort
 			}
 			return nil, false, nil
@@ -314,6 +322,7 @@ func shareEphPubKey(conn io.ReadWriter, locEphPub *[32]byte) (remEphPub *[32]byt
 			var bytes gogotypes.BytesValue
 			_, err = protoio.NewDelimitedReader(conn, 1024*1024).ReadMsg(&bytes)
 			if err != nil {
+				fmt.Println("^^^^^^^^^^^^^^^conn ReadMsg failed", err)
 				return nil, true, err // abort
 			}
 
@@ -326,6 +335,7 @@ func shareEphPubKey(conn io.ReadWriter, locEphPub *[32]byte) (remEphPub *[32]byt
 	// If error:
 	if trs.FirstError() != nil {
 		err = trs.FirstError()
+		fmt.Println("^^^^^^^^^^^^^^^conn FirstError", err)
 		return
 	}
 

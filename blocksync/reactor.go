@@ -213,6 +213,8 @@ func (bcR *Reactor) ReceiveEnvelope(e p2p.Envelope) {
 			bcR.Logger.Error("Block content is invalid", "err", err)
 			return
 		}
+		// addr, _ := e.Src.NodeInfo().NetAddress()
+		// fmt.Printf("=====block sync receive block: %d, peer id: %s, addr: %s, peer: %+v\n", bi.Height, e.Src.ID(), addr, e.Src)
 		bcR.pool.AddBlock(e.Src.ID(), bi, msg.Block.Size())
 	case *bcproto.StatusRequest:
 		// Send peer our state.
@@ -383,7 +385,8 @@ FOR_LOOP:
 
 			// TODO: batch saves so we dont persist to disk every block
 			bcR.store.SaveBlock(first, firstParts, second.LastCommit)
-
+			fmt.Printf(">>>>>received block: %d, duration: %d ms\n", first.Height, time.Now().Sub(t2).Milliseconds())
+			t2 = time.Now()
 			// TODO: same thing for app - but we would need a way to
 			// get the hash without persisting the state
 			state, _, err = bcR.blockExec.ApplyBlock(state, firstID, first)
@@ -407,6 +410,8 @@ FOR_LOOP:
 		}
 	}
 }
+
+var t2 time.Time = time.Now()
 
 // BroadcastStatusRequest broadcasts `BlockStore` base and height.
 func (bcR *Reactor) BroadcastStatusRequest() {

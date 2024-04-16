@@ -212,6 +212,7 @@ func (mt *MultiplexTransport) Dial(
 	addr NetAddress,
 	cfg peerConfig,
 ) (Peer, error) {
+	fmt.Printf("^^^^^Dail peer %s with timeout, %d ms\n", addr.IP.String(), mt.dialTimeout.Milliseconds())
 	c, err := addr.DialTimeout(mt.dialTimeout)
 	if err != nil {
 		return nil, err
@@ -222,6 +223,7 @@ func (mt *MultiplexTransport) Dial(
 		return nil, err
 	}
 
+	fmt.Printf("^^^^^upgrade peer %s connection...\n", addr.IP.String())
 	secretConn, nodeInfo, err := mt.upgrade(c, &addr)
 	if err != nil {
 		return nil, err
@@ -412,6 +414,7 @@ func (mt *MultiplexTransport) upgrade(
 		}
 	}()
 
+	fmt.Printf("^^^^^^^^^^^^^^^upgradeSecretConn with timeout, %d ms, addr: %s\n", mt.handshakeTimeout.Milliseconds(), dialedAddr.IP.String())
 	secretConn, err = upgradeSecretConn(c, mt.handshakeTimeout, mt.nodeKey.PrivKey)
 	if err != nil {
 		return nil, nil, ErrRejected{

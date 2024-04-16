@@ -244,6 +244,7 @@ func (pool *BlockPool) RedoRequest(height int64) p2p.ID {
 // AddBlock validates that the block comes from the peer it was expected from and calls the requester to store it.
 // TODO: ensure that blocks come in order for each peer.
 func (pool *BlockPool) AddBlock(peerID p2p.ID, block *types.Block, blockSize int) {
+	// fmt.Printf("==========AddBlock, pool height:%d, block height: %d, peer id: \n", pool.height, block.Height)
 	pool.mtx.Lock()
 	defer pool.mtx.Unlock()
 

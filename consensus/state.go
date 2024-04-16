@@ -41,6 +41,76 @@ var (
 )
 
 var msgQueueSize = 1000
+var ct time.Time = time.Now()
+var newRoundT []int64 = make([]int64, 20)
+var enterProposeT []int64 = make([]int64, 20)
+var enterPrevoteT []int64 = make([]int64, 20)
+var enterPrevoteWaitT []int64 = make([]int64, 20)
+var enterPrecommitT []int64 = make([]int64, 20)
+var enterPrecommitWaitT []int64 = make([]int64, 20)
+var enterCommitT []int64 = make([]int64, 20)
+
+type tt int
+
+const (
+	newRoundTT tt = iota
+	enterProposeTT
+	enterPrevoteTT
+	enterPrevoteWaitTT
+	enterPrecommitTT
+	enterPrecommitWaitTT
+	enterCommitTT
+)
+
+func calcAverage(typ tt) int64 {
+	// last20 := newRoundT
+	// switch typ {
+	// case newRoundTT:
+	// 	last20 = newRoundT
+	// case enterProposeTT:
+	// 	last20 = enterProposeT
+	// case enterPrevoteTT:
+	// 	last20 = enterPrevoteT
+	// case enterPrevoteWaitTT:
+	// 	last20 = enterPrevoteWaitT
+	// case enterPrecommitTT:
+	// 	last20 = enterPrecommitT
+	// case enterPrecommitWaitTT:
+	// 	last20 = enterPrecommitWaitT
+	// case enterCommitTT:
+	// 	last20 = enterCommitT
+	// }
+	// tmp := last20[:19]
+	// duration := time.Since(ct).Milliseconds()
+	// last20 = append([]int64{duration}, tmp...)
+	// total := int64(0)
+	// for _, d := range last20 {
+	// 	total += d
+	// }
+	// fmt.Printf("map: %v/n", last20)
+	// ct = time.Now()
+
+	// switch typ {
+	// case newRoundTT:
+	// 	newRoundT = last20
+	// case enterProposeTT:
+	// 	enterProposeT = last20
+	// case enterPrevoteTT:
+	// 	enterPrevoteT = last20
+	// case enterPrevoteWaitTT:
+	// 	enterPrevoteWaitT = last20
+	// case enterPrecommitTT:
+	// 	enterPrecommitT = last20
+	// case enterPrecommitWaitTT:
+	// 	enterPrecommitWaitT = last20
+	// case enterCommitTT:
+	// 	enterCommitT = last20
+	// }
+	// return total / 20
+	duration := int64(time.Since(ct).Milliseconds())
+	ct = time.Now()
+	return duration
+}
 
 // msgs from the reactor which may update the state
 type msgInfo struct {
@@ -763,11 +833,13 @@ func (cs *State) receiveRoutine(maxSteps int) {
 				cs.Logger.Error("failed writing to WAL", "err", err)
 			}
 
+			fmt.Println("~~~~~msg: receive peer message from:", mi.PeerID)
 			// handles proposals, block parts, votes
 			// may generate internal events (votes, complete proposals, 2/3 majorities)
 			cs.handleMsg(mi)
 
 		case mi = <-cs.internalMsgQueue:
+			fmt.Println("~~~~~msg: receive internal message from:", mi.PeerID)
 			err := cs.wal.WriteSync(mi) // NOTE: fsync
 			if err != nil {
 				panic(fmt.Sprintf(
@@ -788,6 +860,7 @@ func (cs *State) receiveRoutine(maxSteps int) {
 			cs.handleMsg(mi)
 
 		case ti := <-cs.timeoutTicker.Chan(): // tockChan:
+			fmt.Println("~~~~~msg: receive timeout")
 			if err := cs.wal.Write(ti); err != nil {
 				cs.Logger.Error("failed writing to WAL", "err", err)
 			}
@@ -818,9 +891,11 @@ func (cs *State) handleMsg(mi msgInfo) {
 	case *ProposalMessage:
 		// will not cause transition.
 		// once proposal is set, we can receive block parts
+		fmt.Println("~~~~~msg: receive message from:", mi.PeerID, "msg Type: ProposalMessage")
 		err = cs.setProposal(msg.Proposal)
 
 	case *BlockPartMessage:
+		fmt.Println("~~~~~msg: receive message from:", mi.PeerID, "msg Type: BlockPartMessage")
 		// if the proposal is complete, we'll enterPrevote or tryFinalizeCommit
 		added, err = cs.addProposalBlockPart(msg, peerID)
 
@@ -856,6 +931,7 @@ func (cs *State) handleMsg(mi msgInfo) {
 		}
 
 	case *VoteMessage:
+		fmt.Println("~~~~~msg: receive message from:", mi.PeerID, "msg Type: VoteMessage", "vote type:", msg.Vote.Type, "vote height:", msg.Vote.Height)
 		// attempt to add the vote and dupeout the validator if its a duplicate signature
 		// if the vote gives us a 2/3-any or 2/3-one, we transition
 		added, err = cs.tryAddVote(msg.Vote, peerID)
@@ -982,6 +1058,7 @@ func (cs *State) handleTxsAvailable() {
 // Enter: +2/3 prevotes any or +2/3 precommits for block or any from (height, round)
 // NOTE: cs.StartTime was already set for height.
 func (cs *State) enterNewRound(height int64, round int32) {
+	fmt.Println("=====enterNewRound, last duration", calcAverage(newRoundTT))
 	logger := cs.Logger.With("height", height, "round", round)
 
 	if cs.Height != height || round < cs.Round || (cs.Round == round && cs.Step != cstypes.RoundStepNewHeight) {
@@ -1065,6 +1142,8 @@ func (cs *State) needProofBlock(height int64) bool {
 //
 // Enter (!CreateEmptyBlocks) : after enterNewRound(height,round), once txs are in the mempool
 func (cs *State) enterPropose(height int64, round int32) {
+	fmt.Println("=====enterPropose, last duration", calcAverage(enterProposeTT))
+	ct = time.Now()
 	logger := cs.Logger.With("height", height, "round", round)
 
 	if cs.Height != height || round < cs.Round || (cs.Round == round && cstypes.RoundStepPropose <= cs.Step) {
@@ -1129,6 +1208,7 @@ func (cs *State) isProposer(address []byte) bool {
 }
 
 func (cs *State) defaultDecideProposal(height int64, round int32) {
+	fmt.Println("~~~~~Proposal: defaultDecideProposal")
 	var block *types.Block
 	var blockParts *types.PartSet
 
@@ -1137,6 +1217,7 @@ func (cs *State) defaultDecideProposal(height int64, round int32) {
 		// If there is valid block, choose that.
 		block, blockParts = cs.ValidBlock, cs.ValidBlockParts
 	} else {
+		fmt.Println("~~~~~Proposal: createProposalBlock & MakePartSet")
 		// Create a new proposal block from state/txs from the mempool.
 		var err error
 		block, err = cs.createProposalBlock()
@@ -1168,10 +1249,12 @@ func (cs *State) defaultDecideProposal(height int64, round int32) {
 		proposal.Signature = p.Signature
 
 		// send proposal and block parts on internal msg queue
+		fmt.Println("~~~~~Proposal: sendInternalMessage ProposalMessage")
 		cs.sendInternalMessage(msgInfo{&ProposalMessage{proposal}, ""})
 
 		for i := 0; i < int(blockParts.Total()); i++ {
 			part := blockParts.GetPart(i)
+			fmt.Println("~~~~~Proposal: sendInternalMessage block Parts:", i+1, "size", len(part.Bytes), "total:", int(blockParts.Total()))
 			cs.sendInternalMessage(msgInfo{&BlockPartMessage{cs.Height, cs.Round, part}, ""})
 		}
 
@@ -1243,6 +1326,7 @@ func (cs *State) createProposalBlock() (*types.Block, error) {
 // Prevote for LockedBlock if we're locked, or ProposalBlock if valid.
 // Otherwise vote nil.
 func (cs *State) enterPrevote(height int64, round int32) {
+	fmt.Println("=====enterPrevote, last duration", calcAverage(enterPrevoteTT))
 	logger := cs.Logger.With("height", height, "round", round)
 
 	if cs.Height != height || round < cs.Round || (cs.Round == round && cstypes.RoundStepPrevote <= cs.Step) {
@@ -1330,6 +1414,7 @@ func (cs *State) defaultDoPrevote(height int64, round int32) {
 
 // Enter: any +2/3 prevotes at next round.
 func (cs *State) enterPrevoteWait(height int64, round int32) {
+	fmt.Println("=====enterPrevoteWait, last duration", calcAverage(enterPrevoteWaitTT))
 	logger := cs.Logger.With("height", height, "round", round)
 
 	if cs.Height != height || round < cs.Round || (cs.Round == round && cstypes.RoundStepPrevoteWait <= cs.Step) {
@@ -1366,6 +1451,7 @@ func (cs *State) enterPrevoteWait(height int64, round int32) {
 // else, unlock an existing lock and precommit nil if +2/3 of prevotes were nil,
 // else, precommit nil otherwise.
 func (cs *State) enterPrecommit(height int64, round int32) {
+	fmt.Println("=====enterPrecommit, last duration", calcAverage(enterPrecommitTT))
 	logger := cs.Logger.With("height", height, "round", round)
 
 	if cs.Height != height || round < cs.Round || (cs.Round == round && cstypes.RoundStepPrecommit <= cs.Step) {
@@ -1488,6 +1574,7 @@ func (cs *State) enterPrecommit(height int64, round int32) {
 
 // Enter: any +2/3 precommits for next round.
 func (cs *State) enterPrecommitWait(height int64, round int32) {
+	fmt.Println("=====enterPrecommitWait, last duration", calcAverage(enterPrecommitWaitTT))
 	logger := cs.Logger.With("height", height, "round", round)
 
 	if cs.Height != height || round < cs.Round || (cs.Round == round && cs.TriggeredTimeoutPrecommit) {
@@ -1520,6 +1607,7 @@ func (cs *State) enterPrecommitWait(height int64, round int32) {
 
 // Enter: +2/3 precommits for block
 func (cs *State) enterCommit(height int64, commitRound int32) {
+	fmt.Println("=====enterCommit, last duration", calcAverage(enterCommitTT))
 	logger := cs.Logger.With("height", height, "commit_round", commitRound)
 
 	if cs.Height != height || cstypes.RoundStepCommit <= cs.Step {
@@ -1877,6 +1965,7 @@ func (cs *State) defaultSetProposal(proposal *types.Proposal) error {
 	}
 
 	proposal.Signature = p.Signature
+	fmt.Println("~~~~~set proposal:", proposal.Height)
 	cs.Proposal = proposal
 	// We don't update cs.ProposalBlockParts if it is already set.
 	// This happens if we're already in cstypes.RoundStepCommit or if there is a valid block in the current round.
@@ -1917,6 +2006,7 @@ func (cs *State) addProposalBlockPart(msg *BlockPartMessage, peerID p2p.ID) (add
 		return false, nil
 	}
 
+	fmt.Println("~~~~~add proposalBlockParts:", part.Index)
 	added, err = cs.ProposalBlockParts.AddPart(part)
 	if err != nil {
 		if errors.Is(err, types.ErrPartSetInvalidProof) || errors.Is(err, types.ErrPartSetUnexpectedIndex) {
@@ -1933,6 +2023,7 @@ func (cs *State) addProposalBlockPart(msg *BlockPartMessage, peerID p2p.ID) (add
 		)
 	}
 	if added && cs.ProposalBlockParts.IsComplete() {
+		fmt.Println("~~~~~add proposalBlockParts complete")
 		bz, err := io.ReadAll(cs.ProposalBlockParts.GetReader())
 		if err != nil {
 			return added, err
@@ -2053,6 +2144,12 @@ func (cs *State) addVote(vote *types.Vote, peerID p2p.ID) (added bool, err error
 		"val_index", vote.ValidatorIndex,
 		"cs_height", cs.Height,
 	)
+	fmt.Println("~~~~~adding vote",
+		"vote_height", vote.Height,
+		"vote_type", vote.Type,
+		"vote_validator", vote.ValidatorAddress,
+		"val_index", vote.ValidatorIndex,
+		"cs_height", cs.Height)
 
 	if vote.Height < cs.Height || (vote.Height == cs.Height && vote.Round < cs.Round) {
 		cs.metrics.MarkLateVote(vote.Type)
@@ -2306,6 +2403,7 @@ func (cs *State) signAddVote(msgType cmtproto.SignedMsgType, hash []byte, header
 	// TODO: pass pubKey to signVote
 	vote, err := cs.signVote(msgType, hash, header)
 	if err == nil {
+		fmt.Println("~~~~~signed and pushed vote, sendInternalMessage", "height:", cs.Height, "round:", cs.Round, "vote:", vote)
 		cs.sendInternalMessage(msgInfo{&VoteMessage{vote}, ""})
 		cs.Logger.Debug("signed and pushed vote", "height", cs.Height, "round", cs.Round, "vote", vote)
 		return vote
